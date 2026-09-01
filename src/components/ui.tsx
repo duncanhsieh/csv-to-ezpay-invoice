@@ -53,7 +53,7 @@ export function Field({
       </span>
       {children}
       {error ? (
-        <span className="mt-1 flex items-start gap-1 text-[11px] leading-relaxed text-rose-600">
+        <span className="mt-1 flex items-start gap-1 text-2xs leading-relaxed text-rose-600">
           <svg
             viewBox="0 0 24 24"
             fill="none"
@@ -67,7 +67,7 @@ export function Field({
           {error}
         </span>
       ) : (
-        hint && <span className="mt-1 block text-[11px] leading-relaxed text-slate-500">{hint}</span>
+        hint && <span className="mt-1 block text-2xs leading-relaxed text-slate-500">{hint}</span>
       )}
     </label>
   );
@@ -182,7 +182,7 @@ export function Checkbox({
       />
       <span className="text-xs text-slate-700">
         {label}
-        {hint && <span className="mt-0.5 block text-[11px] text-slate-500">{hint}</span>}
+        {hint && <span className="mt-0.5 block text-2xs text-slate-500">{hint}</span>}
       </span>
     </label>
   );
@@ -201,7 +201,7 @@ const toneClass: Record<Tone, string> = {
 export function Badge({ tone = "neutral", children }: { tone?: Tone; children: ReactNode }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${toneClass[tone]}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ring-inset ${toneClass[tone]}`}
     >
       {children}
     </span>

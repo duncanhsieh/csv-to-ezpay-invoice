@@ -141,6 +141,11 @@ npm run deploy   # build 後部署到 Firebase Hosting
 
 技術棧：Vite 7 + React 19 + TypeScript + Tailwind CSS 4 + Vitest。
 
+字級在 `src/index.css` 的 `@theme` 統一定義：中文在 12px 以下筆畫會糊掉，因此
+`--text-2xs` = 12px 是全站下限（提示、標籤等次要文字），其餘級距依序為
+13px（`text-xs`，表格內容）、15px（`text-sm`，輸入框與標題）、19px、22px，
+並拉大行高。**不要再使用 `text-[11px]` 這類低於 12px 的寫法。**
+
 ### 部署
 
 推送到 `master` 後，`.github/workflows/deploy.yml` 會自動安裝相依套件、跑測試、

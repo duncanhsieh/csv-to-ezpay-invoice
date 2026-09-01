@@ -55,7 +55,7 @@ function SummaryCard({
   } as const;
   return (
     <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-      <p className="text-[11px] font-medium text-slate-500">{label}</p>
+      <p className="text-2xs font-medium text-slate-500">{label}</p>
       <p className={`tabular mt-1 text-xl font-semibold ${tones[tone]}`}>{value}</p>
     </div>
   );
@@ -83,14 +83,14 @@ function InvoiceTable({ invoices, fix }: { invoices: Invoice[]; fix: FixHandlers
       <table className="w-full min-w-[1040px] border-collapse text-left text-xs">
         <thead className="bg-slate-50 text-slate-600">
           <tr>
-            <th className="px-3 py-2 font-medium">列</th>
+            <th className="px-3 py-2 font-medium whitespace-nowrap">列</th>
             <th className="w-[26rem] px-3 py-2 font-medium">商店自訂編號 / 問題與修正</th>
-            <th className="px-3 py-2 font-medium">種類</th>
+            <th className="px-3 py-2 font-medium whitespace-nowrap">種類</th>
             <th className="px-3 py-2 font-medium">買受人</th>
-            <th className="px-3 py-2 font-medium">載具 / 捐贈</th>
-            <th className="px-3 py-2 text-right font-medium">銷售額</th>
-            <th className="px-3 py-2 text-right font-medium">稅額</th>
-            <th className="px-3 py-2 text-right font-medium">發票金額</th>
+            <th className="px-3 py-2 font-medium whitespace-nowrap">載具 / 捐贈</th>
+            <th className="px-3 py-2 text-right font-medium whitespace-nowrap">銷售額</th>
+            <th className="px-3 py-2 text-right font-medium whitespace-nowrap">稅額</th>
+            <th className="px-3 py-2 text-right font-medium whitespace-nowrap">發票金額</th>
             <th className="px-3 py-2 font-medium">商品</th>
           </tr>
         </thead>
@@ -101,7 +101,7 @@ function InvoiceTable({ invoices, fix }: { invoices: Invoice[]; fix: FixHandlers
               <td className="px-3 py-2">
                 <span className="font-mono text-slate-900">{invoice.商店自訂編號}</span>
                 {invoice.商店自訂編號 !== invoice.原始訂單編號 && (
-                  <span className="block text-[11px] text-slate-400">
+                  <span className="block text-2xs text-slate-400">
                     原：{invoice.原始訂單編號}
                   </span>
                 )}
@@ -125,15 +125,17 @@ function InvoiceTable({ invoices, fix }: { invoices: Invoice[]; fix: FixHandlers
                   <span className="ml-1 font-mono text-slate-500">({invoice.買受人統一編號})</span>
                 )}
                 {invoice.買受人電子信箱 && (
-                  <span className="block text-[11px] text-slate-500">{invoice.買受人電子信箱}</span>
+                  <span className="block text-2xs text-slate-500">{invoice.買受人電子信箱}</span>
                 )}
               </td>
               <td className="px-3 py-2 text-slate-600">{收付方式(invoice)}</td>
-              <td className="tabular px-3 py-2 text-right text-slate-700">
+              <td className="tabular px-3 py-2 text-right whitespace-nowrap text-slate-700">
                 {money(invoice.銷售額合計)}
               </td>
-              <td className="tabular px-3 py-2 text-right text-slate-700">{money(invoice.稅額)}</td>
-              <td className="tabular px-3 py-2 text-right font-semibold text-slate-900">
+              <td className="tabular px-3 py-2 text-right whitespace-nowrap text-slate-700">
+                {money(invoice.稅額)}
+              </td>
+              <td className="tabular px-3 py-2 text-right font-semibold whitespace-nowrap text-slate-900">
                 {money(invoice.發票金額)}
               </td>
               <td className="px-3 py-2 text-slate-600">
@@ -192,7 +194,7 @@ function FileChecks({ checks }: { checks: FileCheck[] }) {
               <span className={style.text}>
                 {check.message}
                 {check.code && (
-                  <span className="ml-2 font-mono text-[11px] text-slate-400">{check.code}</span>
+                  <span className="ml-2 font-mono text-2xs text-slate-400">{check.code}</span>
                 )}
               </span>
             </li>
@@ -200,7 +202,7 @@ function FileChecks({ checks }: { checks: FileCheck[] }) {
         })}
       </ul>
       {passed > 0 && (
-        <p className="border-t border-slate-100 bg-slate-50/60 px-4 py-2 text-[11px] text-slate-500">
+        <p className="border-t border-slate-100 bg-slate-50/60 px-4 py-2 text-2xs text-slate-500">
           其餘 {passed} 項檔案層級檢查皆通過。
         </p>
       )}
@@ -280,7 +282,7 @@ export default function Preview({
                 <button
                   type="button"
                   onClick={onSkipAllErrors}
-                  className="rounded-md bg-white px-2.5 py-1 text-[11px] font-medium text-rose-700 ring-1 ring-rose-300 transition ring-inset hover:bg-rose-100"
+                  className="rounded-md bg-white px-2.5 py-1 text-2xs font-medium text-rose-700 ring-1 ring-rose-300 transition ring-inset hover:bg-rose-100"
                 >
                   跳過全部 {totals.錯誤筆數} 筆錯誤資料
                 </button>
@@ -292,7 +294,7 @@ export default function Preview({
 
         {tab === "raw" && (
           <div className="max-h-[28rem] overflow-auto bg-slate-900 p-4">
-            <pre className="font-mono text-[11px] leading-relaxed whitespace-pre text-slate-100">
+            <pre className="font-mono text-2xs leading-relaxed whitespace-pre text-slate-100">
               {fileContent || "（無資料）"}
             </pre>
           </div>
@@ -308,7 +310,7 @@ export default function Preview({
                 type="button"
                 onClick={onDownloadUnissued}
                 disabled={result.skipped.length === 0}
-                className="rounded-md bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 ring-1 ring-slate-300 transition ring-inset hover:bg-slate-100 disabled:opacity-50"
+                className="rounded-md bg-white px-2.5 py-1 text-2xs font-medium text-slate-700 ring-1 ring-slate-300 transition ring-inset hover:bg-slate-100 disabled:opacity-50"
               >
                 下載未開立清單（{result.skipped.length} 筆）
               </button>
@@ -320,7 +322,7 @@ export default function Preview({
               <table className="w-full border-collapse text-left text-xs">
                 <thead className="bg-slate-50 text-slate-600">
                   <tr>
-                    <th className="px-3 py-2 font-medium">列</th>
+                    <th className="px-3 py-2 font-medium whitespace-nowrap">列</th>
                     <th className="px-3 py-2 font-medium">原因</th>
                     <th className="px-3 py-2 font-medium">內容摘要</th>
                   </tr>

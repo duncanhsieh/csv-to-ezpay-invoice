@@ -155,7 +155,7 @@ export default function SettingsPanel({
           </p>
         ) : (
           <div className="space-y-3">
-            <div className="hidden gap-3 px-1 text-[11px] font-medium text-slate-500 sm:grid sm:grid-cols-[1fr_1fr_1fr_auto]">
+            <div className="hidden gap-3 px-1 text-2xs font-medium text-slate-500 sm:grid sm:grid-cols-[1fr_1fr_1fr_auto]">
               <span>判斷欄位</span>
               <span>條件</span>
               <span>比對值</span>
@@ -198,7 +198,7 @@ export default function SettingsPanel({
               </div>
             ))}
             {config.filters.some((rule) => rule.column === UNMAPPED) && (
-              <p className="text-[11px] text-amber-600">
+              <p className="text-2xs text-amber-600">
                 未指定判斷欄位的條件不會生效，請選擇欄位或移除該條件。
               </p>
             )}

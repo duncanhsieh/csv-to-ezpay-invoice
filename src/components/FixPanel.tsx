@@ -3,7 +3,7 @@ import type { Fix, Invoice, Issue, OverridableField, RowOverride } from "../lib/
 import { describeOverride, hasOverride, suggestFixes } from "../lib/fixes";
 
 const chipClass =
-  "rounded-md px-2 py-1 text-[11px] font-medium transition ring-1 ring-inset disabled:opacity-50";
+  "rounded-md px-2 py-1 text-2xs font-medium transition ring-1 ring-inset disabled:opacity-50";
 
 function FixChips({
   invoice,
@@ -26,7 +26,7 @@ function FixChips({
       {fixes.map((fix: Fix, i) => {
         if (fix.kind === "hint") {
           return (
-            <span key={i} className="text-[11px] text-slate-500">
+            <span key={i} className="text-2xs text-slate-500">
               {fix.label}
             </span>
           );
@@ -88,7 +88,7 @@ function EditField({
   const [draft, setDraft] = useState(initial);
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-      <span className="text-[11px] font-medium text-slate-600">{field}</span>
+      <span className="text-2xs font-medium text-slate-600">{field}</span>
       <input
         autoFocus
         value={draft}
@@ -97,7 +97,7 @@ function EditField({
           if (e.key === "Enter") onCommit(draft);
           if (e.key === "Escape") onCancel();
         }}
-        className="w-56 rounded-md border border-indigo-300 px-2 py-1 text-[11px] outline-none focus:ring-2 focus:ring-indigo-500/30"
+        className="w-56 rounded-md border border-indigo-300 px-2 py-1 text-2xs outline-none focus:ring-2 focus:ring-indigo-500/30"
       />
       <button
         type="button"
@@ -145,8 +145,8 @@ export default function FixPanel({
           <p
             className={
               issue.level === "error"
-                ? "text-[11px] text-rose-600"
-                : "text-[11px] text-amber-600"
+                ? "text-2xs text-rose-600"
+                : "text-2xs text-amber-600"
             }
           >
             {issue.level === "error" ? "✕" : "!"} {issue.message}
@@ -175,13 +175,13 @@ export default function FixPanel({
 
       {changed && override && (
         <div className="flex flex-wrap items-center gap-2 rounded-md bg-indigo-50/70 px-2 py-1">
-          <span className="text-[11px] text-indigo-800">
+          <span className="text-2xs text-indigo-800">
             已修正：{describeOverride(override).join("、")}
           </span>
           <button
             type="button"
             onClick={onReset}
-            className="text-[11px] font-medium text-indigo-600 underline-offset-2 hover:underline"
+            className="text-2xs font-medium text-indigo-600 underline-offset-2 hover:underline"
           >
             還原
           </button>
