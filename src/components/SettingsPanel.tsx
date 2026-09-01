@@ -12,17 +12,20 @@ function ColumnSelect({
   headers,
   value,
   onChange,
+  unmappedLabel = "— 未使用 —",
 }: {
   headers: string[];
   value: number;
   onChange: (index: number) => void;
+  /** 未選欄位時要顯示的文字，用來說明「不逐筆處理」會怎麼開立 */
+  unmappedLabel?: string;
 }) {
   return (
     <SelectField
       value={value}
       onChange={onChange}
       options={[
-        { value: UNMAPPED, label: "— 未使用 —" },
+        { value: UNMAPPED, label: unmappedLabel },
         ...headers.map((header, index) => ({
           value: index,
           label: `${index + 1}. ${header}`,
@@ -47,6 +50,16 @@ const MAPPING_FIELDS: { key: keyof ColumnMapping; label: string; hint?: string }
   { key: "商品數量", label: "商品數量（逐筆）" },
   { key: "備註", label: "備註（逐筆）" },
 ];
+
+/**
+ * 未選欄位時的說明文字。
+ * 商品名稱與數量沒選欄位不代表「不使用」，而是整批套用固定值，
+ * 因此顯示實際會用到的值，避免以為沒設定。
+ */
+const UNMAPPED_LABELS: Partial<Record<keyof ColumnMapping, (config: InvoiceConfig) => string>> = {
+  商品數量: (config) => `固定 ${config.預設商品數量 || 1}`,
+  商品名稱: (config) => `固定：${config.預設商品名稱 || "（未填）"}`,
+};
 
 const FILTER_OPERATORS = (Object.keys(OPERATOR_LABEL) as FilterOperator[]).map((value) => ({
   value,
@@ -92,6 +105,11 @@ export default function SettingsPanel({
 
   const 會員編號錯誤 = validateAccountCode("會員編號", config.會員編號);
   const 商店代號錯誤 = validateAccountCode("商店代號", config.商店代號);
+
+  // 商品名稱與數量可以「逐筆」由來源欄位提供，或「固定」套用整批設定
+  const 商品名稱逐筆 = config.mapping.商品名稱 !== UNMAPPED;
+  const 商品數量逐筆 = config.mapping.商品數量 !== UNMAPPED;
+  const 欄位名 = (index: number) => headers[index] ?? "";
 
   const 零稅率 = config.稅別 === "2";
   const 免稅或零稅率 = config.稅別 === "2" || config.稅別 === "3";
@@ -226,6 +244,7 @@ export default function SettingsPanel({
                 headers={headers}
                 value={config.mapping[key]}
                 onChange={(index) => updateMapping(key, index)}
+                unmappedLabel={UNMAPPED_LABELS[key]?.(config)}
               />
             </Field>
           ))}
@@ -277,11 +296,19 @@ export default function SettingsPanel({
                 ]}
               />
             </Field>
-            <Field label="預設商品名稱" hint="最長 30 字元">
+            <Field
+              label="預設商品名稱"
+              hint={
+                商品名稱逐筆
+                  ? `已選逐筆處理，改由「${欄位名(config.mapping.商品名稱)}」提供`
+                  : "最長 30 字元"
+              }
+            >
               <TextField
                 value={config.預設商品名稱}
                 onChange={(v) => onChange({ 預設商品名稱: v })}
                 maxLength={30}
+                disabled={商品名稱逐筆}
               />
             </Field>
             <Field label="商品單位" hint="最長 2 字元">
@@ -291,11 +318,19 @@ export default function SettingsPanel({
                 maxLength={2}
               />
             </Field>
-            <Field label="預設商品數量">
+            <Field
+              label="預設商品數量"
+              hint={
+                商品數量逐筆
+                  ? `已選逐筆處理，改由「${欄位名(config.mapping.商品數量)}」提供`
+                  : "每張發票的商品數量，預設為 1"
+              }
+            >
               <NumberField
                 value={config.預設商品數量}
                 onChange={(v) => onChange({ 預設商品數量: v })}
                 min={1}
+                disabled={商品數量逐筆}
               />
             </Field>
             <div className="sm:col-span-2">

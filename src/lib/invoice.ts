@@ -190,7 +190,23 @@ function buildItem(
     });
   }
 
-  let 商品數量 = Number.isFinite(數量) && 數量 > 0 ? Math.floor(數量) : 1;
+  const 數量有效 = Number.isFinite(數量) && 數量 > 0;
+  if (!數量有效) {
+    issues.push({
+      level: "warning",
+      field: "商品數量",
+      message: `商品數量「${數量}」無效，已改以數量 1 開立`,
+    });
+  } else if (!Number.isInteger(數量)) {
+    // 規格要求商品數量為純數字（整數）
+    issues.push({
+      level: "warning",
+      field: "商品數量",
+      message: `商品數量 ${數量} 非整數，已無條件捨去為 ${Math.floor(數量)}`,
+    });
+  }
+
+  let 商品數量 = 數量有效 ? Math.floor(數量) : 1;
   if (String(商品數量).length > MAX.商品數量位數) {
     issues.push({
       level: "error",
@@ -206,11 +222,13 @@ function buildItem(
     });
   }
   if (小計 % 商品數量 !== 0) {
-    // 規格要求「商品數量 * 商品單價 = 商品小計」且皆為整數，無法整除時退回 1
+    // 規格要求「商品數量 × 商品單價 = 商品小計」且單價須為整數。
+    // 金額無法被數量整除時（例如 3 個共 1000 元），只能退回數量 1、單價 = 小計，
+    // 發票金額本身不受影響，但品項上的數量會與實際購買數量不同。
     issues.push({
       level: "warning",
       field: "商品數量",
-      message: `金額 ${小計} 無法被數量 ${商品數量} 整除，已改以數量 1 開立`,
+      message: `金額 ${小計} 無法被數量 ${商品數量} 整除（單價會出現小數），已改以數量 1、單價 ${小計} 開立；發票金額不受影響`,
     });
     商品數量 = 1;
   }

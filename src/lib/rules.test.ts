@@ -182,6 +182,71 @@ describe("商品欄位", () => {
     expect(errorsOf(invoice)).toContain("商品小計");
   });
 
+  it("金額無法被數量整除時退回數量 1，但發票金額不變", () => {
+    // 例如買 3 個、總價 2 元：單價會是 0.667，不符合規格的整數要求
+    const invoice = build(
+      { 訂單編號: "A1", 姓名: "王", 發票金額: "2", 電子信箱: "a@b.co" },
+      { 預設商品數量: 3 },
+    );
+    const item = invoice.items[0];
+
+    expect(item.商品數量).toBe(1);
+    expect(item.商品單價).toBe(2);
+    expect(item.商品小計).toBe(2);
+    expect(invoice.發票金額).toBe(2);
+    expect(invoice.銷售額合計 + invoice.稅額).toBe(invoice.發票金額);
+    expect(warningsOf(invoice)).toContain("商品數量");
+  });
+
+  it("數量非整數時無條件捨去並提出警告", () => {
+    const invoice = build(
+      { 訂單編號: "A1", 姓名: "王", 發票金額: "1000", 電子信箱: "a@b.co" },
+      { 預設商品數量: 1.5 },
+    );
+    expect(invoice.items[0].商品數量).toBe(1);
+    expect(invoice.issues.some((i) => i.message.includes("非整數"))).toBe(true);
+  });
+
+  it("數量為 0 或負數時退回 1 並提出警告", () => {
+    for (const 預設商品數量 of [0, -3]) {
+      const invoice = build(
+        { 訂單編號: "A1", 姓名: "王", 發票金額: "1000", 電子信箱: "a@b.co" },
+        { 預設商品數量 },
+      );
+      expect(invoice.items[0].商品數量).toBe(1);
+      expect(invoice.issues.some((i) => i.message.includes("無效"))).toBe(true);
+    }
+  });
+
+  it("能整除時保留原數量", () => {
+    const invoice = build(
+      { 訂單編號: "A1", 姓名: "王", 發票金額: "2100", 電子信箱: "a@b.co" },
+      { 預設商品數量: 3 },
+    );
+    expect(invoice.items[0]).toMatchObject({ 商品數量: 3, 商品單價: 700, 商品小計: 2100 });
+    expect(warningsOf(invoice)).not.toContain("商品數量");
+  });
+
+  it("任何數量與金額組合，發票金額與品項小計都不會算錯", () => {
+    for (const qty of [1, 2, 3, 7, 12]) {
+      for (const amount of [1, 2, 99, 999, 1000, 1050, 2100, 12345]) {
+        const invoice = build(
+          { 訂單編號: "A1", 姓名: "王", 發票金額: String(amount), 電子信箱: "a@b.co" },
+          { 預設商品數量: qty },
+        );
+        const item = invoice.items[0];
+        // 規格三條硬性要求
+        expect(item.商品數量 * item.商品單價).toBe(item.商品小計);
+        expect(Number.isInteger(item.商品單價)).toBe(true);
+        expect(invoice.銷售額合計 + invoice.稅額).toBe(invoice.發票金額);
+        // 金額必須等於來源資料，不因數量而改變
+        expect(invoice.發票金額).toBe(amount);
+        // B2C 品項小計為含稅總額
+        expect(item.商品小計).toBe(amount);
+      }
+    }
+  });
+
   it("數量 × 單價 = 小計 恆成立", () => {
     for (const [金額, 數量] of [
       ["1000", 1],
