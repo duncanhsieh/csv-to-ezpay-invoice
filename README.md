@@ -1,46 +1,196 @@
-# Getting Started with Create React App
+# CSV 轉 ezPay 電子發票批次開立檔
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+把 CSV / Excel 名單轉成 [ezPay 電子發票加值服務平台](https://inv.ezpay.com.tw/)
+【批次開立】所需的批次檔，依《電子發票批次開立操作手冊》**V1.0.5**（2026/5/6）產生
+首錄(H)、明細錄(S)、明細錄(I)。
 
-## Available Scripts
+所有處理都在瀏覽器完成，名單不會上傳到任何伺服器。
 
-In the project directory, you can run:
+## 功能
 
-### `npm start`
+- **上傳 CSV / XLS / XLSX**：自動偵測 UTF-8 或 Big5 編碼；CSV 以字串解析，統一編號與
+  手機條碼的前導零不會遺失。
+- **欄位自動對應**：依標題關鍵字猜測欄位，並可手動調整。
+- **商店資料驗證**：會員編號與商店代號輸入時自動移除空白、Tab、全形空白與零寬字元，
+  並把全形英數字轉為半形；若仍含不合法字元（中文、逗號等）會標示錯誤並擋下下載——
+  這兩個值會直接寫進首錄(H) 並用於檔名，含逗號會讓平台無法解析。
+- **多條件篩選（交集）**：可疊加多個條件（等於、不等於、包含、不包含、為空白、不為空白），
+  全部符合的資料列才會開立；被略過的列會標明是哪一個條件不符。
+- **略過 0 元訂單**：發票金額為 0 或空白的資料列預設不開立，也不會被當成錯誤；
+  可取消勾選改為標記錯誤。金額欄位若填的是無法解析的文字（例如「免費」）仍會回報錯誤，
+  避免欄位對應錯誤時整批被無聲略過。
+- **資料清理（trim）**：自動去除前後空白、全形空白、零寬字元與控制字元；統一編號補滿
+  8 碼、載具轉半形大寫、金額容許 `NT$1,000` 這類寫法；文字欄位的半形逗號改為全形，
+  避免破壞以逗號分隔的檔案格式。
+- **訂單編號加鹽**：發票作廢後重開時自訂編號不可重覆（錯誤代碼 `LIB10003`），可在原編號
+  後附加自訂文字、日期、時間或隨機碼。超過 20 字元時會保留鹽並截斷原編號。
+- **開立前預覽**：逐筆列出買受人、載具／捐贈、銷售額、稅額、發票金額與商品，並統計
+  總筆數與總金額；同時可切換檢視實際檔案內容與被略過的資料列。
+- **規格驗證**：涵蓋檔案層級與逐筆欄位的完整規則（見下方「驗證規則」），
+  錯誤會擋下下載，警告則提醒確認；檔案層級檢查只在有問題時才顯示。
+- **逐列修正**：每個問題（含警告）都附上可行的修正選項（見下方「修正選項」），
+  一鍵套用或直接改欄位值；真的救不了的就跳過，改由未開立清單人工處理。
+- **未開立清單**：把沒開成發票的資料列連同原因與完整原始欄位匯出成 CSV。
+- **記住設定**：商店資料與發票設定存在瀏覽器 localStorage；欄位對應與篩選條件以
+  「欄位名稱」記錄，下次上傳同一份報表即使欄位順序不同也能正確還原。
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+## 驗證規則
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+### 檔案層級
 
-### `npm test`
+預覽區的「檔案層級檢查」只在有問題時才出現：全部通過時整塊不顯示，有錯誤或提醒時
+只列出需要處理的項目，其餘通過的項目收斂成一行說明。
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+| 檢查 | 層級 | 對應代碼 |
+| --- | --- | --- |
+| 檔案未超過 800KB（超過時提示應拆成幾個檔） | 錯誤 | — |
+| 檔名為「商店代號_西元年月日」 | 通過 | — |
+| 執行開立日期為有效的 yyyymmdd | 錯誤 | `INV70001` |
+| 執行開立日期為今日（批次開立為即時開立） | 警告 | — |
+| 首錄(H) 恰為 1 筆且位於第一列 | 通過 | `INV70006` |
+| 至少有一筆明細錄(S)，且每筆都有對應的明細錄(I) | 錯誤 | `KEY10004` |
+| 商店自訂編號未重覆 | 錯誤 | `LIB10003` |
+| 每列欄位數正確（S 18 欄 / I 8 欄） | 錯誤 | `INV70007` `INV70008` |
+| 會員編號、商店代號不可為空且不含不合法字元（顯示於欄位旁與底部工具列） | 錯誤 | `KEY10004` `KEY10010` |
 
-### `npm run build`
+### 逐筆檢查
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+| 欄位 | 規則 | 層級 |
+| --- | --- | --- |
+| 商店自訂編號 | 不可為空、限英數字與底線、最長 20 字元、不可重覆 | 錯誤 |
+| 買受人統一編號 | B2B 必填、8 碼數字 | 錯誤 |
+| 買受人統一編號 | 檢查碼符合財政部規則 | 警告 |
+| 買受人名稱 | 不可為空；B2B 限 75 字元、B2C 限 30 字元（超過自動截斷） | 錯誤／警告 |
+| 買受人名稱 | 以位元組計可能超過上限（中文以 2 計） | 警告 |
+| 買受人電子信箱 | 格式正確；載具類別為 2 時必填 | 警告／錯誤 |
+| 買受人地址 | 超過 100 字元 | 警告 |
+| 手機條碼載具 | `/` + 7 碼（限 `0-9 A-Z + - .`） | 錯誤 |
+| 自然人憑證載具 | 2 碼大寫英文 + 14 碼數字 | 錯誤 |
+| 捐贈碼 | 3~7 碼純數字 | 錯誤 |
+| 捐贈碼 | 在財政部受贈單位清單中 | 警告 |
+| 載具／捐贈碼／索取紙本 | 三者互斥關係與 Y／N 規則 | 自動套用 |
+| 稅別 | 限 1／2／3／4 | 自動套用 |
+| 稅率 | 應稅須為 5、零稅率與免稅須為 0、特種稅率須大於 0 | 錯誤 |
+| 報關標記 | 零稅率時必填 1 或 2 | 錯誤 |
+| 銷售額／稅額／發票金額 | 皆為整數，且銷售額 + 稅額 = 發票金額 | 自動套用 |
+| 發票金額 | 可解析且大於 0（0 元可設定為略過） | 錯誤 |
+| 商品名稱 | 必填、最長 30 字元 | 錯誤／警告 |
+| 商品單位 | 必填、最長 2 字元 | 錯誤／警告 |
+| 商品數量 | 純數字、最長 5 位 | 錯誤 |
+| 商品單價／小計 | 純數字、最長 10 位，且數量 × 單價 = 小計 | 錯誤 |
+| 備註 | 最長 200 字、不得含半形逗號（自動轉全形） | 警告／自動套用 |
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+標示「自動套用」的規則由產生邏輯保證成立，不會產生違規的輸出。
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+## 修正選項
 
-### `npm run eject`
+預覽區的每一個問題下方都會列出可行的修正方式。修正記錄的是「來源資料的解讀方式」，
+換設定或改篩選條件重新產生時仍會沿用，並可隨時按「還原」取消。
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+| 問題 | 提供的修正 |
+| --- | --- |
+| 統一編號格式錯誤 / 檢查碼不符 | **改開 B2C 發票**（清除統編，抬頭轉為買受人姓名）、修改統一編號、跳過此筆 |
+| 有統編但缺公司名稱 | 補上公司名稱改開 B2B、確認開 B2C |
+| 手機條碼 / 自然人憑證格式錯誤 | **改用 ezPay 會員載具**（無 Email 時為「清除載具」並落回索取紙本）、修改載具編號、改為索取紙本、跳過此筆 |
+| ezPay 載具缺 Email | 修改 Email、改為索取紙本、跳過此筆 |
+| 捐贈碼格式錯誤 / 不在清單中 | 清除捐贈碼改開一般發票、修改捐贈碼、跳過此筆 |
+| 買受人名稱為空或過長 | 填寫買受人名稱、跳過此筆 |
+| 買受人地址過長 | 修改地址、清除地址（非必填） |
+| 訂單編號為空 / 格式錯誤 / 重覆 | 修改訂單編號、跳過此筆；重覆時另提示可用「訂單編號加鹽」整批處理 |
+| 發票金額無法解析或超過位數 | 修改發票金額、跳過此筆 |
+| 商品名稱為空、數量有問題 | 逐列填寫，或到「發票與商品設定」改整批預設值 |
+| 稅率、報關標記、商品單位 | 屬於整批共用設定，提示到「發票與商品設定」調整 |
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+除了整批設定造成的問題之外，**每一個問題（含警告）都提供「跳過此筆」**——像是
+統一編號檢查碼不符但確實是對方提供的號碼，這種在畫面上處理不了的情況需要一條退路。
+另有「跳過全部 N 筆錯誤資料」可一次把有錯誤的資料列排除，先把乾淨的部分開立完成。
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+## 未開立清單
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+底部工具列的「下載未開立清單」（「略過的資料」分頁也有）可下載
+`未開立清單_商店代號_日期.csv`。它不受批次檔的錯誤阻擋——有錯誤時反而更需要它。內容包含：
 
-## Learn More
+- `來源列號`、`未開立原因`（不符合篩選條件／發票金額為 0 元／人工略過的原因）
+- 來源檔的**全部原始欄位**，方便直接拿這份檔案人工開立或回頭修資料
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+## 開立規則
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+| 情況 | 產生的內容 |
+| --- | --- |
+| 有統一編號且有公司名稱 | B2B，索取紙本 `Y` |
+| 其餘 | B2C |
+| B2C 有捐贈碼 | 捐贈碼，載具欄位留空，索取紙本 `N` |
+| B2C 有手機條碼 / 自然人憑證 | 載具類別 `0` / `1`，索取紙本 `N` |
+| B2C 只有 Email | ezPay 電子發票載具（類別 `2`），索取紙本 `N` |
+| B2C 三者皆無 | 索取紙本 `Y` |
+
+資料列要被開立，必須同時通過所有篩選條件，且發票金額大於 0（若已勾選略過 0 元訂單）。
+
+金額依含稅總額回推：銷售額 = 四捨五入(總額 ÷ (1 + 稅率))，稅額 = 總額 − 銷售額，
+確保「銷售額 + 稅額 = 發票金額」。商品單價依平台規則，B2B 為未稅、B2C 為含稅。
+
+## 開發
+
+```bash
+npm install
+npm run dev      # 本機開發（http://localhost:5173）
+npm test         # 執行單元測試
+npm run build    # 產生 build/
+npm run deploy   # build 後部署到 Firebase Hosting
+```
+
+技術棧：Vite 7 + React 19 + TypeScript + Tailwind CSS 4 + Vitest。
+
+### 部署
+
+推送到 `master` 後，`.github/workflows/deploy.yml` 會自動安裝相依套件、跑測試、
+建置，並發佈到 GitHub Pages：
+
+<https://duncanhsieh.github.io/csv-to-ezpay-invoice/>
+
+測試沒過就不會部署。也可以在 Actions 頁面用 **Run workflow** 手動觸發。
+
+GitHub Pages 的專案站台在 `/<repo>/` 子路徑下，因此 CI 會把
+`actions/configure-pages` 提供的 `base_path` 以環境變數 `BASE_PATH` 傳給 Vite；
+本機開發與 Firebase Hosting 仍是根路徑。要在本機重現 Pages 的路徑：
+
+```bash
+BASE_PATH=/csv-to-ezpay-invoice npm run build
+```
+
+原本的 Firebase Hosting 設定（`firebase.json`、`npm run deploy`）保留未動，
+兩邊都可以部署；若已完全改用 GitHub Pages，可自行移除。
+
+### 專案結構
+
+```
+src/
+  lib/
+    text.ts        欄位清理與正規化（trim、全半形、金額解析）
+    sheet.ts       CSV / Excel 讀取（含編碼偵測與 RFC 4180 解析）
+    salt.ts        訂單編號加鹽
+    invoice.ts     由表格建立發票資料並逐欄驗證
+    fileChecks.ts  檔案層級檢查（大小、日期、記錄結構）
+    fixes.ts       每種問題對應的修正選項與逐列覆寫
+    unissued.ts    未開立發票清單（CSV）
+    serialize.ts   輸出 H / S / I 記錄與檔案下載
+    config.ts      預設值、欄位自動對應、localStorage 儲存
+  components/      介面元件（含預覽區的逐列修正面板 FixPanel）
+  data/            財政部受贈單位清單（打包時只保留捐贈碼與名稱）
+```
+
+### 受贈單位清單
+
+`src/data/donateCodes.json` 保留原始的 6 個欄位供日後查閱；`vite.config.ts` 的
+`donate-codes` plugin 會在打包時壓成「捐贈碼 → 單位名稱」對照表，只把用得到的資料
+放進 bundle。要更新清單時直接替換這個 JSON 即可。
+
+## 規格版本
+
+輸出設定可切換規格版本：
+
+- **V1.0.5**（預設）：明細錄(S) 18 欄（第 14 欄為新增的「報關標記」）、明細錄(I) 8 欄
+  （第 8 欄為新增的「商品課稅別」）。
+- **V1.0.4 以前**：明細錄(S) 17 欄、明細錄(I) 7 欄。
+
+若平台回報 `INV70006` / `INV70007` / `INV70008`（欄位數量錯誤），改用另一個版本再試。

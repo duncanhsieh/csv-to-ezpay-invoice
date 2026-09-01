@@ -1,342 +1,332 @@
-import "./App.css";
-import { UploadIcon } from "@heroicons/react/solid";
-import * as XLSX from "xlsx";
-import { useRef, useState } from "react";
-import donateCode from "./code.json";
-import TextInput from "./components/TextInput";
-import Dropdown from "./components/Dropdown";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import FileDrop from "./components/FileDrop";
+import Preview from "./components/Preview";
+import SettingsPanel from "./components/SettingsPanel";
+import { Button, Checkbox } from "./components/ui";
+import {
+  clearSaved,
+  createDefaultConfig,
+  loadConfig,
+  loadRememberedColumns,
+  rememberColumns,
+  resolveColumns,
+  saveConfig,
+  validateAccountCode,
+} from "./lib/config";
+import { buildInvoices } from "./lib/invoice";
+import { mergeOverride } from "./lib/fixes";
+import { buildUnissuedCsv, unissuedFileName } from "./lib/unissued";
+import { buildFileChecks } from "./lib/fileChecks";
+import { generateSalt, previewSalt } from "./lib/salt";
+import { readSheetFile, type SheetData } from "./lib/sheet";
+import { buildFileName, downloadText, serialize } from "./lib/serialize";
+import {
+  UNMAPPED,
+  type InvoiceConfig,
+  type OverridableField,
+  type RowOverride,
+  type RowOverrides,
+} from "./lib/types";
 
-function App() {
-  const inputRef = useRef(null);
+/**
+ * 隨機鹽必須在「按下下載」時才定案，否則每次重繪都會換一組編號。
+ * 這裡以 seed 觸發重新產生，讓預覽與實際下載的內容一致。
+ */
+function useSalt(config: InvoiceConfig) {
+  const [seed, setSeed] = useState(0);
+  const { mode, custom } = config.salt;
+  // 只在加鹽方式或自訂內容改變時重算；分隔符號改變不需要換一組鹽
+  const salt = useMemo(() => generateSalt({ mode, custom, separator: "_" }), [mode, custom, seed]);
+  return { salt, reroll: () => setSeed((s) => s + 1) };
+}
 
-  const [會員編號, set會員編號] = useState("");
-  const [商店代號, set商店代號] = useState("");
-  const [判斷條件, set判斷條件] = useState(2);
-  const [等於, set等於] = useState("已繳費");
-  const [訂單編號, set訂單編號] = useState(0);
-  const [B2C買受人名稱, setB2C買受人名稱] = useState(0);
-  const [B2B統一編號, setB2B統一編號] = useState(0);
-  const [B2B公司名稱, setB2B公司名稱] = useState(0);
-  const [電子郵件, set電子郵件] = useState(0);
-  const [手機條碼載具, set手機條碼載具] = useState(0);
-  const [捐贈碼, set捐贈碼] = useState(0);
-  const [發票金額, set發票金額] = useState(0);
-  const [商品名稱, set商品名稱] = useState("教育訓練課程");
-  const [單位, set單位] = useState("次");
+export default function App() {
+  const [sheet, setSheet] = useState<SheetData | null>(null);
+  const [fileError, setFileError] = useState("");
+  const [config, setConfig] = useState<InvoiceConfig>(() => loadConfig() ?? createDefaultConfig());
+  const [acknowledgeErrors, setAcknowledgeErrors] = useState(false);
+  const [restoredColumns, setRestoredColumns] = useState(0);
+  const [overrides, setOverrides] = useState<RowOverrides>({});
 
-  const [sheetData, setSheetData] = useState<Array<Array<any>>>([[]]);
+  const { salt, reroll } = useSalt(config);
 
-  console.log(donateCode);
+  // 商店資料、發票設定隨時保存；欄位對應另以「欄位名稱」保存
+  useEffect(() => {
+    saveConfig(config);
+  }, [config]);
 
-  const handleXlsxFile = async (e: React.FormEvent<HTMLInputElement>) => {
-    const fileInput = e.target as HTMLInputElement;
-    if (fileInput.files) {
-      const file = fileInput.files[0];
+  useEffect(() => {
+    if (sheet) rememberColumns(sheet.headers, config);
+  }, [sheet, config]);
 
-      if (file.type === "text/csv") {
-        /* data is an Text */
-        const reader = new FileReader();
-        reader.readAsText(file);
-        reader.onloadend = function (e: any) {
-          const content = e.target.result;
-          const workbook = XLSX.read(content, { type: "string" });
-          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-          const s: Array<Array<any>> = XLSX.utils.sheet_to_json(firstSheet, {
-            header: 1,
-            defval: "",
-            blankrows: true,
-          });
-          setSheetData(s);
-        };
-      } else if (file.name.match(".(xlsx|xls)$")) {
-        /* data is an ArrayBuffer */
-        const data = await file.arrayBuffer();
-        const workbook = XLSX.read(data);
-        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-        const s: Array<Array<any>> = XLSX.utils.sheet_to_json(firstSheet, {
-          header: 1,
-          defval: "",
-          blankrows: true,
-        });
-        setSheetData(s);
-      }
+  const update = useCallback(
+    (patch: Partial<InvoiceConfig>) => setConfig((prev) => ({ ...prev, ...patch })),
+    [],
+  );
+
+  /** 逐列的人工修正，以來源列號為 key */
+  const fix = useMemo(
+    () => ({
+      overrides,
+      sourceValue: (sourceRow: number, field: OverridableField) => {
+        const overridden = overrides[sourceRow]?.values?.[field];
+        if (overridden !== undefined) return overridden;
+        const column = config.mapping[field];
+        const row = sheet?.rows[sourceRow - 2];
+        return column === UNMAPPED || !row ? "" : (row[column] ?? "");
+      },
+      onPatch: (sourceRow: number, override: RowOverride) =>
+        setOverrides((prev) => ({
+          ...prev,
+          [sourceRow]: mergeOverride(prev[sourceRow], override),
+        })),
+      onSkip: (sourceRow: number, reason: string) =>
+        setOverrides((prev) => ({
+          ...prev,
+          [sourceRow]: mergeOverride(prev[sourceRow], { skip: true, skipReason: reason }),
+        })),
+      onReset: (sourceRow: number) =>
+        setOverrides((prev) => {
+          const next = { ...prev };
+          delete next[sourceRow];
+          return next;
+        }),
+    }),
+    [overrides, config.mapping, sheet],
+  );
+
+  const handleFile = useCallback(async (file: File) => {
+    setFileError("");
+    try {
+      const data = await readSheetFile(file);
+      setSheet(data);
+      // 先套用上次記住的欄位名稱，其餘再依標題自動猜測
+      const { mapping, filters, restored } = resolveColumns(data.headers, loadRememberedColumns());
+      setRestoredColumns(restored);
+      setOverrides({});
+      setConfig((prev) => ({ ...prev, mapping, filters }));
+    } catch (error) {
+      setSheet(null);
+      setFileError(error instanceof Error ? error.message : "檔案讀取失敗");
     }
-    fileInput.value = "";
+  }, []);
+
+  const result = useMemo(() => {
+    if (!sheet) return null;
+    // 以固定的鹽建立，確保預覽即為下載內容
+    return buildInvoices(
+      sheet.rows,
+      { ...config, salt: { ...config.salt, mode: "custom", custom: salt } },
+      { headers: sheet.headers, overrides },
+    );
+  }, [sheet, config, salt, overrides]);
+
+  const fileContent = useMemo(
+    () => (result ? serialize(result, { ...config, withBom: false }) : ""),
+    [result, config],
+  );
+
+  // 檔案層級檢查以實際下載的內容為準（含 BOM 會影響大小）
+  const fileChecks = useMemo(
+    () => (result ? buildFileChecks(result, config, serialize(result, config)) : []),
+    [result, config],
+  );
+  const 檔案錯誤 = fileChecks.filter((check) => check.level === "error");
+
+  const 缺少必填 = !config.會員編號.trim() || !config.商店代號.trim();
+  const 帳號錯誤 = [
+    validateAccountCode("會員編號", config.會員編號),
+    validateAccountCode("商店代號", config.商店代號),
+  ].filter(Boolean);
+  const 缺少對應 =
+    config.mapping.訂單編號 === UNMAPPED || config.mapping.發票金額 === UNMAPPED;
+  const 有錯誤 = (result?.totals.錯誤筆數 ?? 0) > 0;
+  const 無資料 = (result?.invoices.length ?? 0) === 0;
+  const 可下載 =
+    Boolean(result) &&
+    !缺少必填 &&
+    帳號錯誤.length === 0 &&
+    檔案錯誤.length === 0 &&
+    !缺少對應 &&
+    !無資料 &&
+    (!有錯誤 || acknowledgeErrors);
+
+  const blockers = [
+    缺少必填 && "請填寫 ezPay 會員編號與商店代號",
+    ...帳號錯誤,
+    缺少對應 && "請完成「訂單編號」與「發票金額」的欄位對應",
+    ...(無資料 ? [] : 檔案錯誤.map((check) => check.message)),
+    無資料 && !缺少對應 && "目前沒有符合條件的發票資料",
+    有錯誤 && `有 ${result?.totals.錯誤筆數} 筆資料含錯誤，修正後才建議上傳`,
+  ].filter(Boolean) as string[];
+
+  /** 把所有含錯誤的資料列一次標為跳過，讓乾淨的部分先開立 */
+  const handleSkipAllErrors = () => {
+    if (!result) return;
+    setOverrides((prev) => {
+      const next = { ...prev };
+      for (const invoice of result.invoices) {
+        const error = invoice.issues.find((issue) => issue.level === "error");
+        if (!error) continue;
+        next[invoice.sourceRow] = mergeOverride(next[invoice.sourceRow], {
+          skip: true,
+          skipReason: `資料錯誤：${error.message}`,
+        });
+      }
+      return next;
+    });
   };
 
-  const handleTransation = () => {
-    const data = [];
-    data.push([
-      "H",
-      "INVO",
-      會員編號,
-      商店代號,
-      new Date().getFullYear().toString() +
-        (new Date().getMonth() + 1).toString().padStart(2, "0") +
-        new Date().getDate().toString().padStart(2, "0"),
-    ]);
-
-    const customers = sheetData
-      .filter((v) => v[判斷條件] === 等於 && v[發票金額] > 0)
-      .slice(0)
-      .map((d) => {
-        console.log(d);
-
-        let r1 = ["S"];
-        r1.push(d[訂單編號]);
-        if (d[B2B統一編號] && d[B2B公司名稱]) {
-          r1.push("B2B");
-          r1.push(d[B2B統一編號].toString().padStart(8, "0"));
-          r1.push(d[B2B公司名稱]);
-          r1.push(d[電子郵件]);
-          r1.push("");
-          r1.push("");
-          r1.push("");
-          r1.push("");
-          r1.push("Y");
-        } else {
-          r1.push("B2C");
-          r1.push("");
-          r1.push(d[B2C買受人名稱]);
-          r1.push(d[電子郵件]);
-          r1.push("");
-          if (
-            !d[捐贈碼] &&
-            !donateCode.find((v) => v.捐贈碼 === d[捐贈碼].toString())
-          ) {
-            r1.push(d[手機條碼載具] ? "0" : "2");
-            r1.push(
-              d[手機條碼載具] ? d[手機條碼載具].toUpperCase() : d[電子郵件]
-            );
-            r1.push("");
-            r1.push("N");
-          } else {
-            r1.push("");
-            r1.push("");
-            r1.push(d[捐贈碼]);
-            r1.push("N");
-          }
-        }
-        r1.push("1");
-        r1.push("5");
-        r1.push(Math.round(parseInt(d[發票金額]) / 1.05).toString());
-        r1.push(
-          Math.round(d[發票金額] - parseInt(d[發票金額]) / 1.05).toString()
-        );
-        r1.push(d[發票金額]);
-        r1.push("");
-
-        let r2 = [];
-
-        r2.push("I");
-        r2.push(d[訂單編號]);
-        r2.push(商品名稱);
-        r2.push(1);
-        r2.push(單位);
-        r2.push(d[發票金額]);
-        r2.push(d[發票金額]);
-
-        data.push(r1);
-        data.push(r2);
-
-        return [r1, r2];
-      });
-
-    const textfile = window.URL.createObjectURL(
-      new File(
-        [
-          "\uFEFF",
-          data
-            .map((r) => {
-              return r.join(",");
-            })
-            .join("\r\n"),
-        ],
-        `${商店代號}_${
-          new Date().getFullYear().toString() +
-          (new Date().getMonth() + 1).toString().padStart(2, "0") +
-          new Date().getDate().toString().padStart(2, "0")
-        }.txt`
-      )
-    );
-
-    const tempLink = document.createElement("a");
-    tempLink.href = textfile;
-    tempLink.setAttribute(
-      "download",
-      `${商店代號}_${
-        new Date().getFullYear().toString() +
-        (new Date().getMonth() + 1).toString().padStart(2, "0") +
-        new Date().getDate().toString().padStart(2, "0")
-      }.txt`
-    );
-    tempLink.click();
+  const handleDownloadUnissued = () => {
+    if (!result || !sheet) return;
+    downloadText(unissuedFileName(config), buildUnissuedCsv(result, sheet.headers));
   };
+
+  const handleDownload = () => {
+    if (!result || !可下載) return;
+    downloadText(buildFileName(config), serialize(result, config));
+    // 隨機鹽在下載後換一組，避免不小心重覆送出同一批編號
+    if (config.salt.mode === "random") reroll();
+  };
+
+  const sampleOrderNo = result?.invoices[0]?.原始訂單編號 ?? "";
 
   return (
-    <div className="App">
-      <div className="bg-gradient-to-r from-sky-400 to-indigo-500 w-full min-h-screen flex flex-row justify-center items-center">
-        <div>
-          <span className="pr-2 font-bold">選擇開發票資料</span>
-          <label
-            htmlFor="upload"
-            className="cursor-pointer inline-flex w-15 justify-center rounded-md bg-black bg-opacity-20 px-4 py-2 text-sm font-medium text-white hover:bg-opacity-30 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-opacity-75"
-          >
-            <UploadIcon className="w-5"></UploadIcon>
-          </label>
-          <input
-            type="file"
-            id="upload"
-            className="hidden"
-            ref={inputRef}
-            accept=".csv,.xls,.xlsx"
-            onChange={handleXlsxFile}
-          />
-
-          {sheetData.length > 0 && sheetData[0].length > 0 && (
-            <div>
-              <table>
-                <tbody>
-                  <tr>
-                    <th>ezPay會員編號</th>
-                    <td>
-                      <TextInput
-                        value={會員編號}
-                        onChange={set會員編號}
-                      ></TextInput>
-                    </td>
-                  </tr>
-                  <tr>
-                    <th>商店代號</th>
-                    <td>
-                      <TextInput
-                        value={商店代號}
-                        onChange={set商店代號}
-                      ></TextInput>
-                    </td>
-                  </tr>
-                  <tr>
-                    <th>判斷條件</th>
-                    <td>
-                      <Dropdown
-                        options={sheetData[0]}
-                        value={判斷條件}
-                        onChange={set判斷條件}
-                      ></Dropdown>
-                      等於
-                      <TextInput value={等於} onChange={set等於}></TextInput>
-                    </td>
-                  </tr>
-                  <tr>
-                    <th>訂單編號</th>
-                    <td>
-                      <Dropdown
-                        options={sheetData[0]}
-                        value={訂單編號}
-                        onChange={set訂單編號}
-                      ></Dropdown>
-                    </td>
-                  </tr>
-                  <tr>
-                    <th>B2C買受人名稱</th>
-                    <td>
-                      <Dropdown
-                        options={sheetData[0]}
-                        value={B2C買受人名稱}
-                        onChange={setB2C買受人名稱}
-                      ></Dropdown>
-                    </td>
-                  </tr>
-                  <tr>
-                    <th>B2B統一編號</th>
-                    <td>
-                      <Dropdown
-                        options={sheetData[0]}
-                        value={B2B統一編號}
-                        onChange={setB2B統一編號}
-                      ></Dropdown>
-                    </td>
-                  </tr>
-                  <tr>
-                    <th>B2B公司名稱</th>
-                    <td>
-                      <Dropdown
-                        options={sheetData[0]}
-                        value={B2B公司名稱}
-                        onChange={setB2B公司名稱}
-                      ></Dropdown>
-                    </td>
-                  </tr>
-                  <tr>
-                    <th>Email</th>
-                    <td>
-                      <Dropdown
-                        options={sheetData[0]}
-                        value={電子郵件}
-                        onChange={set電子郵件}
-                      ></Dropdown>
-                    </td>
-                  </tr>
-                  <tr>
-                    <th>手機條碼載具</th>
-                    <td>
-                      <Dropdown
-                        options={sheetData[0]}
-                        value={手機條碼載具}
-                        onChange={set手機條碼載具}
-                      ></Dropdown>
-                    </td>
-                  </tr>
-                  <tr>
-                    <th>捐贈碼</th>
-                    <td>
-                      <Dropdown
-                        options={sheetData[0]}
-                        value={捐贈碼}
-                        onChange={set捐贈碼}
-                      ></Dropdown>
-                    </td>
-                  </tr>
-                  <tr>
-                    <th>發票金額</th>
-                    <td>
-                      <Dropdown
-                        options={sheetData[0]}
-                        value={發票金額}
-                        onChange={set發票金額}
-                      ></Dropdown>
-                    </td>
-                  </tr>
-                  <tr>
-                    <th>商品名稱</th>
-                    <td>
-                      <TextInput
-                        value={商品名稱}
-                        onChange={set商品名稱}
-                      ></TextInput>
-                    </td>
-                  </tr>
-                  <tr>
-                    <th>單位</th>
-                    <td>
-                      <TextInput value={單位} onChange={set單位}></TextInput>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-
-              <label
-                onClick={handleTransation}
-                className="cursor-pointer inline-flex w-15 justify-center rounded-md bg-black bg-opacity-20 px-4 py-2 text-sm font-medium text-white hover:bg-opacity-30 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-opacity-75"
-              >
-                下載
-              </label>
-            </div>
-          )}
+    <div className="min-h-screen bg-slate-100 text-slate-900">
+      <header className="border-b border-slate-800 bg-slate-900">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-6 py-5">
+          <div>
+            <h1 className="text-lg font-semibold text-white">CSV 轉 ezPay 電子發票批次開立檔</h1>
+            <p className="mt-0.5 text-xs text-slate-400">
+              依《電子發票批次開立操作手冊》V1.0.5 產生首錄(H)、明細錄(S)、明細錄(I)
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-medium text-slate-300 ring-1 ring-slate-700 ring-inset">
+              所有處理皆在瀏覽器完成，資料不會上傳
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                clearSaved();
+                setConfig(createDefaultConfig());
+                setRestoredColumns(0);
+              }}
+              className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-400 transition hover:bg-slate-800 hover:text-white"
+            >
+              清除已儲存的設定
+            </button>
+          </div>
         </div>
-      </div>
+      </header>
+
+      <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+        <FileDrop
+          sheet={sheet}
+          error={fileError}
+          onFile={handleFile}
+          onClear={() => {
+            setSheet(null);
+            setFileError("");
+          }}
+        />
+
+        {sheet && (
+          <>
+            {restoredColumns > 0 && (
+              <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs text-emerald-800">
+                已依欄位名稱還原上次的 {restoredColumns} 項欄位對應
+                {config.filters.length > 0 && ` 與 ${config.filters.length} 個篩選條件`}
+                ，請確認後直接產生檔案。
+              </p>
+            )}
+
+            <SettingsPanel
+              config={config}
+              headers={sheet.headers}
+              sampleOrderNo={sampleOrderNo}
+              saltPreview={previewSalt(sampleOrderNo, salt, config.salt.separator)}
+              onChange={update}
+            />
+
+            {result && (
+              <Preview
+                result={result}
+                config={config}
+                fileContent={fileContent}
+                fileChecks={fileChecks}
+                fix={fix}
+                onSkipAllErrors={handleSkipAllErrors}
+                onDownloadUnissued={handleDownloadUnissued}
+              />
+            )}
+          </>
+        )}
+      </main>
+
+      {sheet && result && (
+        <div className="sticky bottom-0 border-t border-slate-200 bg-white/95 backdrop-blur">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-4">
+            <div className="min-w-0">
+              {blockers.length > 0 ? (
+                <ul className="space-y-0.5 text-xs text-rose-600">
+                  {blockers.map((message) => (
+                    <li key={message}>• {message}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-slate-600">
+                  將產生{" "}
+                  <span className="font-semibold text-slate-900">
+                    {result.invoices.length}
+                  </span>{" "}
+                  張發票、合計{" "}
+                  <span className="tabular font-semibold text-slate-900">
+                    {new Intl.NumberFormat("zh-TW").format(result.totals.發票金額合計)}
+                  </span>{" "}
+                  元，檔名{" "}
+                  <span className="font-mono text-slate-900">{buildFileName(config)}</span>
+                </p>
+              )}
+              {有錯誤 && (
+                <div className="mt-2">
+                  <Checkbox
+                    checked={acknowledgeErrors}
+                    onChange={setAcknowledgeErrors}
+                    label="我已確認，仍要下載含錯誤的檔案"
+                  />
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {/* 未開立清單不受批次檔的錯誤阻擋——有錯誤時反而更需要它 */}
+              <Button
+                variant="secondary"
+                onClick={handleDownloadUnissued}
+                disabled={result.skipped.length === 0}
+              >
+                下載未開立清單（{result.skipped.length}）
+              </Button>
+              <Button onClick={handleDownload} disabled={!可下載}>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="size-4"
+                >
+                  <path
+                    d="M12 4v12m0 0 4-4m-4 4-4-4M4 20h16"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                下載批次開立檔
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
-export default App;
